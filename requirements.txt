@@ -1,3 +1,25 @@
-flask>=2.0.0
-flask-cors>=3.0.0
-requests>=2.28.0
+# Dockerfile - FIXED VERSION
+FROM nikolaik/python-nodejs:python3.9-nodejs18
+
+# Verify Node.js is installed (this will fail if not, helping debug)
+RUN which node && node --version && npm --version
+
+WORKDIR /app
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application files
+COPY waf_server.py .
+COPY solve_waf.js .
+
+# Create non-root user for security
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8080
+
+CMD ["python", "waf_server.py"]
