@@ -1,3 +1,5 @@
+# Create solve_waf.js manually
+cat > solve_waf.js << 'EOF'
 const fs = require('fs');
 const vm = require('vm');
 
@@ -6,7 +8,7 @@ process.stdin.resume();
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (d) => { html += d; });
 process.stdin.on('end', () => {
-  const textareaInner = (html.match(/<textarea id="renderData"[^>]*>([\s\S]*?)<\/textarea>/) || [])[1] || '';
+  const textareaInner = (html.match(/<textarea id="renderData"[^>]*>([\\s\\S]*?)<\\/textarea>/) || [])[1] || '';
 
   let captured = '';
   const location = {
@@ -39,7 +41,7 @@ process.stdin.on('end', () => {
   sandbox.self = sandbox;
 
   const ctx = vm.createContext(sandbox);
-  const scripts = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  const scripts = [...html.matchAll(/<script[^>]*>([\\s\\S]*?)<\\/script>/g)].map((m) => m[1]);
   try {
     for (const s of scripts) {
       vm.runInContext(s, ctx, { timeout: 10000 });
@@ -50,4 +52,8 @@ process.stdin.on('end', () => {
   }
   const m = captured.match(/acw_sc__v2=([^;]+)/);
   console.log(m ? m[1] : 'NO_COOKIE');
-}); 
+});
+EOF
+
+# Rebuild with the file
+docker build -t waf-solver .
