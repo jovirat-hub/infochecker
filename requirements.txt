@@ -1,5 +1,5 @@
-# Production server
+flask>=2.0.0
+flask-cors>=3.0.0
 gunicorn>=21.2.0
-
-# Logging and monitoring
 python-json-logger>=2.0.0
+
