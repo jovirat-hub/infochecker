@@ -1,0 +1,26 @@
+{
+  "name": "waf-solver-server",
+  "version": "1.0.0",
+  "description": "WAF Bypass Server for Mobile Legends Account Checker",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "waf",
+    "bypass",
+    "mobile-legends",
+    "mlbb"
+  ],
+  "author": "nixzlls",
+  "license": "MIT"
+}
