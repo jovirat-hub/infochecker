@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+from typing import List, Optional
 
 app = FastAPI(title="WAF Solver API", version="1.0")
 
@@ -89,9 +90,17 @@ process.stdin.on('end', () => {
   const scripts = [...html.matchAll(/<script[^>]*>([\\s\\S]*?)<\\/script>/g)].map((m) => m[1]);
   try {
     for (const s of scripts) {
-      try { vm.runInContext(s, ctx, { timeout: 10000 }); } catch (e) {}
+      try {
+        vm.runInContext(s, ctx, { timeout: 10000 });
+      } catch (e) {
+        // Individual script error, continue with next
+        continue;
+      }
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error('SOLVE_ERR:', e.message);
+    process.exit(2);
+  }
   const m = captured.match(/acw_sc__v2=([^;]+)/);
   console.log(m ? m[1] : 'NO_COOKIE');
 });
@@ -102,8 +111,14 @@ class WAFSolveRequest(BaseModel):
 
 class WAFSolveResponse(BaseModel):
     success: bool
-    cookie: str = None
-    error: str = None
+    cookie: Optional[str] = None
+    error: Optional[str] = None
+
+class WAFBatchSolveRequest(BaseModel):
+    htmls: List[str]
+
+class WAFBatchSolveResponse(BaseModel):
+    results: List[WAFSolveResponse]
 
 def create_solve_waf_js(filepath: str):
     """Create the solve_waf.js file if it doesn't exist."""
@@ -138,8 +153,12 @@ def solve_waf_challenge(html_content: str, timeout: int = 15) -> str:
             timeout=timeout
         )
         
-        if result.stderr and 'SOLVE_ERR:' in result.stderr:
-            return None
+        # Check for errors in stderr
+        if result.stderr:
+            if 'SOLVE_ERR:' in result.stderr:
+                return None
+            # Log other stderr for debugging but don't fail
+            print(f"WAF Solver stderr: {result.stderr}")
         
         output = result.stdout.strip()
         if output and output != 'NO_COOKIE':
@@ -148,10 +167,13 @@ def solve_waf_challenge(html_content: str, timeout: int = 15) -> str:
         return None
         
     except subprocess.TimeoutExpired:
+        print(f"WAF Solver timeout after {timeout}s")
         return None
     except FileNotFoundError:
+        print("Node.js not found. Please install Node.js")
         return None
-    except Exception:
+    except Exception as e:
+        print(f"WAF Solver error: {str(e)}")
         return None
 
 
@@ -166,13 +188,15 @@ async def root():
         "version": "1.0",
         "endpoints": {
             "/solve": "POST - Solve WAF challenge with HTML",
+            "/solve-batch": "POST - Solve multiple WAF challenges",
+            "/detect": "POST - Detect if HTML contains WAF challenge",
             "/health": "GET - Health check"
         }
     }
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy"}
+    return {"status": "healthy", "node_available": bool(subprocess.run(['node', '--version'], capture_output=True).returncode == 0)}
 
 @app.post("/solve", response_model=WAFSolveResponse)
 async def solve_waf(request: WAFSolveRequest):
@@ -201,8 +225,8 @@ async def solve_waf(request: WAFSolveRequest):
     else:
         return WAFSolveResponse(success=False, error="Failed to solve WAF challenge")
 
-@app.post("/solve-batch")
-async def solve_waf_batch(request: dict):
+@app.post("/solve-batch", response_model=WAFBatchSolveResponse)
+async def solve_waf_batch(request: WAFBatchSolveRequest):
     """
     Solve multiple WAF challenges in batch.
     
@@ -219,19 +243,18 @@ async def solve_waf_batch(request: dict):
         ]
     }
     """
-    htmls = request.get("htmls", [])
-    if not htmls:
+    if not request.htmls:
         raise HTTPException(status_code=400, detail="htmls array is required")
     
     results = []
-    for html_content in htmls:
+    for html_content in request.htmls:
         cookie = solve_waf_challenge(html_content)
         if cookie:
-            results.append({"success": True, "cookie": f"acw_sc__v2={cookie}"})
+            results.append(WAFSolveResponse(success=True, cookie=f"acw_sc__v2={cookie}"))
         else:
-            results.append({"success": False, "error": "Failed to solve WAF challenge"})
+            results.append(WAFSolveResponse(success=False, error="Failed to solve WAF challenge"))
     
-    return {"results": results}
+    return WAFBatchSolveResponse(results=results)
 
 
 # ================================================================
@@ -241,7 +264,11 @@ async def solve_waf_batch(request: dict):
 class DetectWAFRequest(BaseModel):
     html: str
 
-@app.post("/detect")
+class DetectWAFResponse(BaseModel):
+    is_waf: bool
+    indicators: List[str]
+
+@app.post("/detect", response_model=DetectWAFResponse)
 async def detect_waf(request: DetectWAFRequest):
     """
     Detect if the HTML contains a WAF challenge.
@@ -272,10 +299,10 @@ async def detect_waf(request: DetectWAFRequest):
     
     detected = [indicator for indicator in waf_indicators if indicator in request.html]
     
-    return {
-        "is_waf": len(detected) > 0,
-        "indicators": detected
-    }
+    return DetectWAFResponse(
+        is_waf=len(detected) > 0,
+        indicators=detected
+    )
 
 
 # ================================================================
